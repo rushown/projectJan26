@@ -20,7 +20,7 @@ GOLD_API_KEY = os.environ.get('GOLD_API_KEY', 'f2db1aaaee18667e498f2a463de979521
 # Using the exchange rate API you requested
 EXCHANGE_RATE_URL = 'https://open.er-api.com/v6/latest/USD'
 
-SITE_URL = 'https://sunchadiprice.com'
+SITE_URL = 'https://www.sunchadiprice.com'
 NPT = timezone(timedelta(hours=5, minutes=45))  # Nepal Time
 
 # Nepal Market Premiums (Nepal retail price / international spot in NPR).
