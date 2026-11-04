@@ -11,6 +11,7 @@
     <meta name="author" content="SunchadiPrice">
     <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
     <meta name="googlebot" content="index, follow">
+    <meta name="bingbot" content="index, follow">
     <meta name="language" content="ne, en">
     <meta name="geo.region" content="NP">
     <meta name="geo.placename" content="Kathmandu, Nepal">
@@ -22,7 +23,7 @@
     <!-- ═══ OPEN GRAPH ═══ -->
     <meta property="og:title" content="Sunchadi Price - Aajako Sunko Bhav | आजको सुनको भाउ प्रति तोला | Gold Price Nepal Today">
     <meta property="og:description" content="Live सुन र चाँदीको मूल्य नेपालमा। Gold price per tola in NPR, real-time XAU/USD with FENEGOSIDA-aligned rates. हरेक ३ सेकेन्डमा अपडेट।">
-    <meta property="og:url" content="https://sunchadiprice.com">
+    <meta property="og:url" content="https://sunchadiprice.com/">
     <meta property="og:type" content="website">
     <meta property="og:locale" content="ne_NP">
     <meta property="og:locale:alternate" content="en_US">
@@ -40,10 +41,10 @@
     <meta name="twitter:image" content="https://sunchadiprice.com/og-image.png">
 
     <!-- ═══ CANONICAL & HREFLANG ═══ -->
-    <link rel="canonical" href="https://sunchadiprice.com">
+    <link rel="canonical" href="https://sunchadiprice.com/">
     <link rel="alternate" hreflang="ne" href="https://sunchadiprice.com/">
-    <link rel="alternate" hreflang="en" href="https://sunchadiprice.com/en/">
     <link rel="alternate" hreflang="x-default" href="https://sunchadiprice.com/">
+    <link rel="alternate" type="text/markdown" title="LLM-friendly summary" href="https://sunchadiprice.com/llms.txt">
 
     <!-- ═══ FAVICON ═══ -->
     <link rel="icon" href="/favicon.webp" type="image/webp">
@@ -76,15 +77,7 @@
   "alternateName": ["सुन चाँदीको मूल्य नेपाल", "Nepal Gold Price", "Aajako Sunko Bhav"],
   "url": "https://sunchadiprice.com",
   "description": "Live gold and silver prices in Nepal. Real-time XAU/USD and XAG/USD with NPR conversion, per tola and per kg rates. FENEGOSIDA-aligned bullion prices.",
-  "inLanguage": ["ne", "en"],
-  "potentialAction": {
-    "@type": "SearchAction",
-    "target": {
-      "@type": "EntryPoint",
-      "urlTemplate": "https://sunchadiprice.com/?q={search_term_string}"
-    },
-    "query-input": "required name=search_term_string"
-  }
+  "inLanguage": ["ne", "en"]
 }
 </script>
 
@@ -169,6 +162,9 @@
   }
 }
 </script>
+
+    <!-- Schema: live prices (server-rendered; JS replaces it on refresh) -->
+    <script type="application/ld+json" id="dynamic-price-schema">{{ price_schema_json }}</script>
 
     <!-- Schema 4: FAQPage -->
     <script type="application/ld+json">
@@ -1018,7 +1014,7 @@
             <h1><i class="fas fa-gem" aria-hidden="true"></i> सुन र चाँदीको लाइभ मूल्य</h1>
             <p class="subtitle">Aajako Sunko Bhav Nepal – Gold &amp; Silver Live Price Per Tola in NPR</p>
             <!-- Machine-readable last updated, updated by JS -->
-            <time id="page-last-updated" datetime="" style="display:none;" itemprop="dateModified"></time>
+            <time id="page-last-updated" datetime="{{ iso_now }}" style="display:none;" itemprop="dateModified">{{ iso_now }}</time>
         </header>
 
         <main role="main" id="main-content">
@@ -1029,12 +1025,12 @@
                 <h2 style="font-size:0.95rem;color:#3498db;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
                     <i class="fas fa-exchange-alt" aria-hidden="true"></i> USD/NPR Live Exchange Rate
                 </h2>
-                <div class="exchange-rate-compact" id="usd-npr-rate" aria-live="polite" aria-atomic="true">1 USD = NPR 144</div>
+                <div class="exchange-rate-compact" id="usd-npr-rate" aria-live="polite" aria-atomic="true">1 USD = NPR {{ fmt.exchange }}</div>
                 <h2 style="font-size:0.95rem;color:#3498db;margin-bottom:8px;margin-top:8px;display:flex;align-items:center;gap:8px;">
                     <i class="fas fa-exchange-alt" aria-hidden="true" style="background:linear-gradient(to right,#FFD700 0%,#FFA500 50%,#C0C0C0 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;display:inline-block;"></i>सुन र चाँदीको प्रति तोला मूल्य (Real Time)
                 </h2>
-                <div class="current-rate" id="xau-npr" aria-live="polite" aria-atomic="true"> सुन : रु 300,000 </div>
-                <div class="current-rate" id="xag-npr" aria-live="polite" aria-atomic="true"> चाँदी : रु 4,000 </div>
+                <div class="current-rate" id="xau-npr" aria-live="polite" aria-atomic="true">सुन प्रति तोला: रु {{ fmt.gold_tola_in }}</div>
+                <div class="current-rate" id="xag-npr" aria-live="polite" aria-atomic="true">चाँदी प्रति तोला: रु {{ fmt.silver_tola_in }}</div>
                 <div class="backend-status-compact">
                     <span class="status-indicator status-connected" id="backend-status-indicator" aria-hidden="true"></span>
                     <span id="backend-status-text">Backend Connected</span>
@@ -1080,11 +1076,11 @@
                 <div class="calculator-result-compact">
                     <div class="result-row-compact">
                         <span class="result-label-compact">कुल मूल्य:</span>
-                        <span id="calc-total-compact" class="result-value-compact npr-result-compact" aria-live="polite">NPR 284,473.69</span>
+                        <span id="calc-total-compact" class="result-value-compact npr-result-compact" aria-live="polite">{{ fmt.gold_tola }}</span>
                     </div>
                     <div class="result-row-compact">
                         <span class="result-label-compact">प्रति एकाइ:</span>
-                        <span id="calc-unit-price-compact" class="result-value-compact" aria-live="polite">NPR 284,473.69</span>
+                        <span id="calc-unit-price-compact" class="result-value-compact" aria-live="polite">{{ fmt.gold_tola }}</span>
                     </div>
                 </div>
             </div>
@@ -1113,28 +1109,28 @@
                     <div class="currency-label">
                         <i class="fas fa-dollar-sign" aria-hidden="true"></i> Live Price (USD):
                     </div>
-                    <div id="gold-usd" class="price-value gold-price" aria-live="polite" aria-atomic="true" itemprop="price">$2,150.75</div>
+                    <div id="gold-usd" class="price-value gold-price" aria-live="polite" aria-atomic="true" itemprop="price">{{ fmt.gold_usd }}</div>
                 </div>
                 
                 <div class="price-row">
                     <div class="currency-label">
                         <i class="fas fa-rupee-sign" aria-hidden="true"></i> Price in NPR (per oz):
                     </div>
-                    <div id="gold-npr" class="price-value npr-price" aria-live="polite" aria-atomic="true">NPR 284,473.69</div>
+                    <div id="gold-npr" class="price-value npr-price" aria-live="polite" aria-atomic="true">{{ fmt.gold_npr }}</div>
                 </div>
                 
                 <div class="price-row">
                     <div class="currency-label">
                         <i class="fas fa-weight" aria-hidden="true"></i> Per Tola (11.66g):
                     </div>
-                    <div id="gold-tola" class="price-value gold-price" aria-live="polite" aria-atomic="true">NPR 331,898</div>
+                    <div id="gold-tola" class="price-value gold-price" aria-live="polite" aria-atomic="true">{{ fmt.gold_tola }}</div>
                 </div>
                 
                 <div class="price-row">
                     <div class="currency-label">
                         <i class="fas fa-weight" aria-hidden="true"></i> Per Kg:
                     </div>
-                    <div id="gold-kg" class="price-value gold-price" aria-live="polite" aria-atomic="true">NPR 28,475,120</div>
+                    <div id="gold-kg" class="price-value gold-price" aria-live="polite" aria-atomic="true">{{ fmt.gold_kg }}</div>
                 </div>
             </article>
 
@@ -1154,28 +1150,28 @@
                     <div class="currency-label">
                         <i class="fas fa-dollar-sign" aria-hidden="true"></i> Live Price (USD):
                     </div>
-                    <div id="silver-usd" class="price-value silver-price" aria-live="polite" aria-atomic="true" itemprop="price">$24.38</div>
+                    <div id="silver-usd" class="price-value silver-price" aria-live="polite" aria-atomic="true" itemprop="price">{{ fmt.silver_usd }}</div>
                 </div>
                 
                 <div class="price-row">
                     <div class="currency-label">
                         <i class="fas fa-rupee-sign" aria-hidden="true"></i> Price in NPR (per oz):
                     </div>
-                    <div id="silver-npr" class="price-value npr-price" aria-live="polite" aria-atomic="true">NPR 3,256.95</div>
+                    <div id="silver-npr" class="price-value npr-price" aria-live="polite" aria-atomic="true">{{ fmt.silver_npr }}</div>
                 </div>
                 
                 <div class="price-row">
                     <div class="currency-label">
                         <i class="fas fa-weight" aria-hidden="true"></i> Per Tola (11.66g):
                     </div>
-                    <div id="silver-tola" class="price-value silver-price" aria-live="polite" aria-atomic="true">NPR 3,761</div>
+                    <div id="silver-tola" class="price-value silver-price" aria-live="polite" aria-atomic="true">{{ fmt.silver_tola }}</div>
                 </div>
                 
                 <div class="price-row">
                     <div class="currency-label">
                         <i class="fas fa-weight" aria-hidden="true"></i> Per Kg:
                     </div>
-                    <div id="silver-kg" class="price-value silver-price" aria-live="polite" aria-atomic="true">NPR 322,415</div>
+                    <div id="silver-kg" class="price-value silver-price" aria-live="polite" aria-atomic="true">{{ fmt.silver_kg }}</div>
                 </div>
             </article>
         </div>
@@ -1214,7 +1210,7 @@
 
         <div class="last-update" role="status" aria-live="polite">
             <i class="fas fa-sync-alt fa-spin" aria-hidden="true"></i> <span class="update-speed">Real-time Updates (3s)</span> | 
-            Last Updated: <span id="update-time">Loading...</span> |
+            Last Updated: <span id="update-time">{{ update_time }}</span> |
             Chart: <span id="current-symbol">XAU/USD</span> - <span id="current-timeframe">4H</span>
         </div>
 

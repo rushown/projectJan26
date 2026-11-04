@@ -1,12 +1,16 @@
 import concurrent.futures
+import json
+from datetime import datetime, timedelta, timezone
 import mimetypes
 import os
 from pathlib import Path
 import time
 
 import requests
+from django.core.cache import cache
+from django.shortcuts import render
+from django.utils.safestring import mark_safe
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
-from django.views.decorators.cache import cache_page
 from django.views.decorators.http import require_GET
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -15,6 +19,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 GOLD_API_KEY = os.environ.get('GOLD_API_KEY', 'f2db1aaaee18667e498f2a463de9795215b478a6a91abad885d14e6d5edc5b49')
 # Using the exchange rate API you requested
 EXCHANGE_RATE_URL = 'https://open.er-api.com/v6/latest/USD'
+
+SITE_URL = 'https://sunchadiprice.com'
+NPT = timezone(timedelta(hours=5, minutes=45))  # Nepal Time
 
 # Nepal Market Premiums (Nepal retail price / international spot in NPR).
 # Calibrated 2026-11-04 against FENEGOSIDA rates (via Hamro Patro), using the
@@ -126,143 +133,173 @@ def fetch_exchange_rate():
     # Fallback rate
     return FALLBACK_USD_NPR
 
-@require_GET
-@cache_page(30)
-def get_prices(request):
-    """Fetch all prices with NPR conversion"""
+# Conversion constants
+GRAMS_PER_TROY_OUNCE = 31.1035
+GRAMS_PER_TOLA = 11.6638
+GRAMS_PER_KG = 1000
+PRICE_CACHE_KEY = 'nepal_prices_v1'
+PRICE_CACHE_SECONDS = 30
+
+
+def _build_price_data(gold_usd, silver_usd, usd_npr):
+    """Convert international spot prices to Nepal prices (with premium)."""
+    tola_to_ounce = GRAMS_PER_TOLA / GRAMS_PER_TROY_OUNCE
+    kg_to_ounce = GRAMS_PER_KG / GRAMS_PER_TROY_OUNCE
+    gp = NEPAL_PREMIUMS['gold']
+    sp = NEPAL_PREMIUMS['silver']
+
+    gold_npr = gold_usd * usd_npr * gp
+    silver_npr = silver_usd * usd_npr * sp
+    gold_tola_npr = gold_npr * tola_to_ounce
+    silver_tola_npr = silver_npr * tola_to_ounce
+    gold_kg_npr = gold_npr * kg_to_ounce
+    silver_kg_npr = silver_npr * kg_to_ounce
+
+    return {
+        'gold_usd': round(gold_usd, 2),
+        'silver_usd': round(silver_usd, 3),
+        'exchange_rate': round(usd_npr, 2),
+        'gold_npr': round(gold_npr / 100) * 100,
+        'silver_npr': round(silver_npr / 100) * 100,
+        'gold_tola_npr': round(gold_tola_npr / 100) * 100,
+        'silver_tola_npr': round(silver_tola_npr / 10) * 10,
+        'gold_kg_npr': round(gold_kg_npr / 100) * 100,
+        'silver_kg_npr': round(silver_kg_npr / 100) * 100,
+        'timestamp': int(time.time()),
+        'timestamp_human': time.strftime('%Y-%m-%d %H:%M:%S'),
+        'source': 'Gold API + open.er-api.com',
+        'unit': 'USD per troy ounce',
+        'conversion_note': '1 tola = 11.6638g, 1 troy ounce = 31.1035g',
+        'premium_applied': True,
+        'gold_premium_pct': GOLD_PREMIUM_PCT,
+        'silver_premium_pct': SILVER_PREMIUM_PCT,
+    }
+
+
+def compute_prices():
+    """Return (data, error). Shared by the JSON API, the HTML page and llms.txt.
+
+    Cached briefly so page renders and API polls don't hammer upstream APIs.
+    """
+    cached = cache.get(PRICE_CACHE_KEY)
+    if cached:
+        return cached, None
+
     print(f"\n📊 Fetching prices at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             gold_future = executor.submit(fetch_gold_price)
             silver_future = executor.submit(fetch_silver_price)
             exchange_future = executor.submit(fetch_exchange_rate)
-            
             gold_usd = gold_future.result()
             silver_usd = silver_future.result()
             usd_npr = exchange_future.result()
-        
-        print(f"✅ FINAL: Gold: ${gold_usd:.2f}, Silver: ${silver_usd:.3f}, USD/NPR: {usd_npr:.2f}")
-        
-        # Conversion constants
-        GRAMS_PER_TROY_OUNCE = 31.1035
-        GRAMS_PER_TOLA = 11.6638
-        GRAMS_PER_KG = 1000
-        
-        # Calculate conversion factors
-        tola_to_ounce = GRAMS_PER_TOLA / GRAMS_PER_TROY_OUNCE
-        kg_to_ounce = GRAMS_PER_KG / GRAMS_PER_TROY_OUNCE
-        
-        # Calculate BASE NPR prices (without premium)
-        gold_npr_base = gold_usd * usd_npr
-        silver_npr_base = silver_usd * usd_npr
-        
-        # Calculate BASE tola prices (without premium)
-        gold_tola_npr_base = gold_usd * tola_to_ounce * usd_npr
-        silver_tola_npr_base = silver_usd * tola_to_ounce * usd_npr
-        
-        # Calculate BASE kg prices (without premium)
-        gold_kg_npr_base = gold_usd * kg_to_ounce * usd_npr 
-        silver_kg_npr_base = silver_usd * kg_to_ounce * usd_npr
-        
-        # APPLY NEPAL PREMIUMS to NPR prices
-        gold_npr = gold_npr_base * NEPAL_PREMIUMS['gold'] 
-        silver_npr = silver_npr_base * NEPAL_PREMIUMS['silver']
-        
-        # APPLY NEPAL PREMIUMS to tola prices
-        gold_tola_npr = gold_tola_npr_base * NEPAL_PREMIUMS['gold']
-        silver_tola_npr = silver_tola_npr_base * NEPAL_PREMIUMS['silver']
-        
-        # APPLY NEPAL PREMIUMS to kg prices
-        gold_kg_npr = gold_kg_npr_base * NEPAL_PREMIUMS['gold']
-        silver_kg_npr = silver_kg_npr_base * NEPAL_PREMIUMS['silver']
-        
-        print(f"✅ WITH PREMIUMS: Gold NPR: {gold_npr:,.2f} (+{GOLD_PREMIUM_PCT}%), Silver NPR: {silver_npr:,.2f} (+{SILVER_PREMIUM_PCT}%)")
-        
-        # Create response
-        response_data = {
-            'status': 'success',
-            'data': {
-                'gold_usd': round(gold_usd, 2),
-                'silver_usd': round(silver_usd, 3),
-                'exchange_rate': round(usd_npr, 2),
-                'gold_npr': round((gold_npr / 100)) * 100,  # Now with premium
-                'silver_npr': round((silver_npr / 100)) * 100,  # Now with premium
-                # Silver tola with 2 decimals, gold tola as integer
-                'gold_tola_npr': round((gold_tola_npr / 100)) * 100,  # Now with premium
-                'silver_tola_npr': round((silver_tola_npr / 10)) * 10,  # Now with premium
-                'gold_kg_npr': round((gold_kg_npr / 100)) * 100,  # Now with premium
-                'silver_kg_npr': round((silver_kg_npr / 100)) * 100,  # Now with premium
-                'timestamp': int(time.time()),
-                'timestamp_human': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'source': 'Gold API + open.er-api.com',
-                'api_key': 'active',
-                'unit': 'USD per troy ounce',
-                'conversion_note': '1 tola = 11.6638g, 1 troy ounce = 31.1035g',
-                'premium_applied': True,
-                'gold_premium_pct': GOLD_PREMIUM_PCT,
-                'silver_premium_pct': SILVER_PREMIUM_PCT
-            }
-        }
-        
-        print(f"📤 Sending response: {response_data['data']}")
-        json_response = JsonResponse(response_data)
-        json_response['Cache-Control'] = 'public, max-age=30, stale-while-revalidate=5'
-        json_response['X-Robots-Tag'] = 'noindex'
-        return json_response
-        
+
+        data = _build_price_data(gold_usd, silver_usd, usd_npr)
+        print(f"✅ Gold ${gold_usd:.2f}, Silver ${silver_usd:.3f}, USD/NPR {usd_npr:.2f} "
+              f"→ tola: gold {data['gold_tola_npr']:,}, silver {data['silver_tola_npr']:,} "
+              f"(+{GOLD_PREMIUM_PCT}% / +{SILVER_PREMIUM_PCT}%)")
+        cache.set(PRICE_CACHE_KEY, data, PRICE_CACHE_SECONDS)
+        return data, None
     except Exception as e:
-        print(f"❌ Error in get_prices: {e}")
-        
-        # Fallback with same API structure
-        gold_usd = FALLBACK_GOLD_USD
-        silver_usd = FALLBACK_SILVER_USD
-        usd_npr = FALLBACK_USD_NPR
-        
-        # Reuse the same calculation for consistency
-        GRAMS_PER_TROY_OUNCE = 31.1035
-        GRAMS_PER_TOLA = 11.6638
-        GRAMS_PER_KG = 1000
-        
-        tola_to_ounce = GRAMS_PER_TOLA / GRAMS_PER_TROY_OUNCE
-        kg_to_ounce = GRAMS_PER_KG / GRAMS_PER_TROY_OUNCE
-        
-        # Calculate base prices
-        gold_npr_base = gold_usd * usd_npr
-        silver_npr_base = silver_usd * usd_npr
-        gold_tola_npr_base = gold_usd * tola_to_ounce * usd_npr
-        silver_tola_npr_base = silver_usd * tola_to_ounce * usd_npr
-        gold_kg_npr_base = gold_usd * kg_to_ounce * usd_npr
-        silver_kg_npr_base = silver_usd * kg_to_ounce * usd_npr
-        
-        # Apply premiums to fallback too
-        gold_npr = gold_npr_base * NEPAL_PREMIUMS['gold']
-        silver_npr = silver_npr_base * NEPAL_PREMIUMS['silver']
-        gold_tola_npr = gold_tola_npr_base * NEPAL_PREMIUMS['gold']
-        silver_tola_npr = silver_tola_npr_base * NEPAL_PREMIUMS['silver']
-        gold_kg_npr = gold_kg_npr_base * NEPAL_PREMIUMS['gold']
-        silver_kg_npr = silver_kg_npr_base * NEPAL_PREMIUMS['silver']
-        
-        return JsonResponse({
-            'status': 'error',
-            'message': str(e),
-            'data': {
-                'gold_usd': gold_usd,
-                'silver_usd': silver_usd,
-                'exchange_rate': usd_npr,
-                'gold_npr': round(gold_npr, 2),
-                'silver_npr': round(silver_npr, 2),
-                'gold_tola_npr': round(gold_tola_npr),
-                'silver_tola_npr': round(silver_tola_npr, 2),
-                'gold_kg_npr': round(gold_kg_npr),
-                'silver_kg_npr': round(silver_kg_npr),
-                'timestamp': int(time.time()),
-                'source': 'Fallback due to error',
-                'premium_applied': True,
-                'gold_premium_pct': GOLD_PREMIUM_PCT,
-                'silver_premium_pct': SILVER_PREMIUM_PCT
-            }
-        })
+        print(f"❌ Error computing prices: {e}")
+        data = _build_price_data(FALLBACK_GOLD_USD, FALLBACK_SILVER_USD, FALLBACK_USD_NPR)
+        data['source'] = 'Fallback due to error'
+        return data, str(e)
+
+
+@require_GET
+def get_prices(request):
+    """Fetch all prices with NPR conversion (JSON API)"""
+    data, error = compute_prices()
+    if error:
+        return JsonResponse({'status': 'error', 'message': error, 'data': data})
+    json_response = JsonResponse({'status': 'success', 'data': data})
+    json_response['Cache-Control'] = 'public, max-age=30, stale-while-revalidate=5'
+    json_response['X-Robots-Tag'] = 'noindex'
+    return json_response
+
+
+def _fmt(value, decimals=0):
+    return f"{value:,.{decimals}f}"
+
+
+def _fmt_indian(value):
+    """Format an integer with Indian digit grouping (e.g. 2,75,600)."""
+    s = str(int(round(value)))
+    if len(s) <= 3:
+        return s
+    head, tail = s[:-3], s[-3:]
+    groups = []
+    while len(head) > 2:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    if head:
+        groups.insert(0, head)
+    return ','.join(groups) + ',' + tail
+
+
+@require_GET
+def index(request):
+    """Render the homepage with live prices already in the HTML.
+
+    Search engines and LLM crawlers (GPTBot, ClaudeBot, PerplexityBot...)
+    mostly don't run JavaScript, so prices must be server-rendered.
+    """
+    data, _ = compute_prices()
+    iso_now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    valid_until = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+    price_schema = {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "name": "Aajako Sunko Chandi Ko Bhav Nepal – Live Gold Silver Price",
+        "description": "Gold and silver prices in Nepal in NPR per tola",
+        "url": SITE_URL,
+        "dateModified": iso_now,
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1,
+             "name": "सुनको भाउ प्रति तोला (Gold Price Per Tola Nepal)",
+             "item": {"@type": "Product", "name": "Gold (XAU) – Nepal Price Per Tola",
+                      "description": "24K gold price per tola in NPR – aajako sunko bhav Nepal",
+                      "offers": {"@type": "Offer", "priceCurrency": "NPR",
+                                 "price": str(data['gold_tola_npr']),
+                                 "priceValidUntil": valid_until, "url": SITE_URL}}},
+            {"@type": "ListItem", "position": 2,
+             "name": "चाँदीको भाउ प्रति तोला (Silver Price Per Tola Nepal)",
+             "item": {"@type": "Product", "name": "Silver (XAG) – Nepal Price Per Tola",
+                      "description": "999 fine silver price per tola in NPR – chandi ko bhav Nepal",
+                      "offers": {"@type": "Offer", "priceCurrency": "NPR",
+                                 "price": str(data['silver_tola_npr']),
+                                 "priceValidUntil": valid_until, "url": SITE_URL}}},
+        ],
+    }
+    context = {
+        'p': data,
+        'iso_now': iso_now,
+        'update_time': datetime.now(NPT).strftime('%I:%M %p NPT'),
+        # Escape <, >, & so the JSON can't break out of the <script> tag
+        'price_schema_json': mark_safe(
+            json.dumps(price_schema, ensure_ascii=False)
+            .replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')),
+        'fmt': {
+            'gold_usd': '$' + _fmt(data['gold_usd'], 2),
+            'gold_npr': 'NPR ' + _fmt(data['gold_npr'], 2),
+            'gold_tola': 'NPR ' + _fmt(data['gold_tola_npr']),
+            'gold_kg': 'NPR ' + _fmt(data['gold_kg_npr']),
+            'silver_usd': '$' + _fmt(data['silver_usd'], 3),
+            'silver_npr': 'NPR ' + _fmt(data['silver_npr'], 2),
+            'silver_tola': 'NPR ' + _fmt(data['silver_tola_npr'], 2),
+            'silver_kg': 'NPR ' + _fmt(data['silver_kg_npr']),
+            'exchange': f"{data['exchange_rate']:.2f}",
+            'gold_tola_in': _fmt_indian(data['gold_tola_npr']),
+            'silver_tola_in': _fmt_indian(data['silver_tola_npr']),
+        },
+    }
+    response = render(request, 'index.html', context)
+    # Short CDN cache: fresh prices for bots, without an upstream call per hit
+    response['Cache-Control'] = 'public, max-age=0, s-maxage=30, stale-while-revalidate=30'
+    return response
+
 
 @require_GET
 def health_check(request):
@@ -300,36 +337,96 @@ def health_check(request):
     })
 
 
+# AI / LLM crawlers explicitly welcomed (search + answer engines)
+AI_CRAWLERS = [
+    'GPTBot', 'OAI-SearchBot', 'ChatGPT-User',
+    'ClaudeBot', 'Claude-User', 'Claude-SearchBot', 'anthropic-ai',
+    'PerplexityBot', 'Perplexity-User',
+    'Google-Extended', 'Applebot', 'Applebot-Extended',
+    'Bingbot', 'DuckAssistBot', 'meta-externalagent', 'Amazonbot',
+    'cohere-ai', 'MistralAI-User', 'YouBot', 'CCBot',
+]
+
+
+@require_GET
 def robots_txt(request):
-    """Serve robots.txt for SEO crawl control"""
-    content = "\n".join([
-        "User-agent: *",
-        "Allow: /",
-        "Disallow: /api/health/",
-        "",
-        "Sitemap: https://sunchadiprice.com/sitemap.xml",
-        "",
-        "# SunchadiPrice – Live Gold Silver Price Nepal",
-    ])
-    return HttpResponse(content, content_type="text/plain")
+    """Serve robots.txt: open to search engines and AI crawlers"""
+    lines = ["# SunchadiPrice – Live Gold Silver Price Nepal", "",
+             "User-agent: *", "Allow: /", "Disallow: /api/health/", ""]
+    for bot in AI_CRAWLERS:
+        lines += [f"User-agent: {bot}", "Allow: /", "Disallow: /api/health/", ""]
+    lines += [f"Sitemap: {SITE_URL}/sitemap.xml", "",
+              f"# LLM-friendly summary with live prices: {SITE_URL}/llms.txt"]
+    response = HttpResponse("\n".join(lines) + "\n", content_type="text/plain; charset=utf-8")
+    response['Cache-Control'] = 'public, max-age=86400'
+    return response
 
 
+@require_GET
 def sitemap_xml(request):
     """Serve dynamic sitemap.xml"""
-    lastmod = time.strftime('%Y-%m-%d')
-    content = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"\n'
-        '        xmlns:xhtml="http://www.w3.org/1999/xhtml">\n'
-        '  <url>\n'
-        '    <loc>https://sunchadiprice.com/</loc>\n'
-        f'    <lastmod>{lastmod}</lastmod>\n'
-        '    <changefreq>always</changefreq>\n'
-        '    <priority>1.0</priority>\n'
-        '    <xhtml:link rel="alternate" hreflang="ne" href="https://sunchadiprice.com/"/>\n'
-        '    <xhtml:link rel="alternate" hreflang="en" href="https://sunchadiprice.com/en/"/>\n'
-        '    <xhtml:link rel="alternate" hreflang="x-default" href="https://sunchadiprice.com/"/>\n'
-        '  </url>\n'
-        '</urlset>'
+    lastmod = datetime.now(timezone.utc).date().isoformat()
+    urls = [('/', 'always', '1.0'), ('/llms.txt', 'hourly', '0.5')]
+    entries = "".join(
+        f"  <url>\n    <loc>{SITE_URL}{path}</loc>\n    <lastmod>{lastmod}</lastmod>\n"
+        f"    <changefreq>{freq}</changefreq>\n    <priority>{prio}</priority>\n  </url>\n"
+        for path, freq, prio in urls
     )
+    content = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+               '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+               f'{entries}</urlset>\n')
     return HttpResponse(content, content_type="application/xml")
+
+
+@require_GET
+def llms_txt(request):
+    """llms.txt (https://llmstxt.org): plain-markdown summary for LLMs, with live prices"""
+    data, _ = compute_prices()
+    now = datetime.now(NPT).strftime('%Y-%m-%d %H:%M NPT')
+    content = f"""# SunchadiPrice
+
+> Live gold and silver prices in Nepal (aajako sunko bhav / सुनको भाउ) per tola in NPR,
+> derived from the international spot price (XAU/USD, XAG/USD), the USD/NPR exchange rate
+> and a premium calibrated to the official FENEGOSIDA daily rate.
+
+## Current prices (as of {now})
+
+- Gold (24K fine) per tola: NPR {_fmt_indian(data['gold_tola_npr'])}
+- Silver per tola: NPR {_fmt_indian(data['silver_tola_npr'])}
+- Gold per kg: NPR {_fmt(data['gold_kg_npr'])}
+- Silver per kg: NPR {_fmt(data['silver_kg_npr'])}
+- Gold spot (XAU/USD): ${_fmt(data['gold_usd'], 2)} per troy ounce
+- Silver spot (XAG/USD): ${_fmt(data['silver_usd'], 3)} per troy ounce
+- USD/NPR: {data['exchange_rate']:.2f}
+
+These are estimates tracking the market in real time. The official rate is set once daily
+by FENEGOSIDA (Federation of Nepal Gold and Silver Dealers' Association) around 10:45 AM NPT;
+always confirm with FENEGOSIDA or a dealer before buying or selling.
+
+## How the price is calculated
+
+Price per tola (NPR) = spot USD per troy ounce × USD/NPR × (11.6638 ÷ 31.1035) × Nepal premium
+
+- 1 tola = 11.6638 g, 1 troy ounce = 31.1035 g
+- Current Nepal premium: gold +{GOLD_PREMIUM_PCT}%, silver +{SILVER_PREMIUM_PCT}%
+  (covers customs duty, taxes and dealer margin; recalibrated against FENEGOSIDA rates)
+
+## Links
+
+- [Live price page]({SITE_URL}/): real-time gold and silver price tracker (Nepali/English)
+- [JSON price API]({SITE_URL}/api/prices/): current prices as JSON (gold_tola_npr, silver_tola_npr, …)
+"""
+    response = HttpResponse(content, content_type="text/markdown; charset=utf-8")
+    response['Cache-Control'] = 'public, max-age=0, s-maxage=60'
+    return response
+
+
+@require_GET
+def static_image(request, name):
+    """Serve og-image.png / logo.png from templates/"""
+    path = BASE_DIR / 'templates' / name
+    if not path.exists():
+        raise Http404()
+    response = FileResponse(path.open('rb'), content_type='image/png')
+    response['Cache-Control'] = 'public, max-age=604800'
+    return response
