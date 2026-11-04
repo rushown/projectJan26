@@ -288,7 +288,7 @@ def index(request):
             'gold_kg': 'NPR ' + _fmt(data['gold_kg_npr']),
             'silver_usd': '$' + _fmt(data['silver_usd'], 3),
             'silver_npr': 'NPR ' + _fmt(data['silver_npr'], 2),
-            'silver_tola': 'NPR ' + _fmt(data['silver_tola_npr'], 2),
+            'silver_tola': 'NPR ' + _fmt(data['silver_tola_npr']),
             'silver_kg': 'NPR ' + _fmt(data['silver_kg_npr']),
             'exchange': f"{data['exchange_rate']:.2f}",
             'gold_tola_in': _fmt_indian(data['gold_tola_npr']),

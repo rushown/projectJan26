@@ -931,6 +931,12 @@
             100% { background-color: transparent; }
         }
 
+        /* Comfortable tap targets for inline footer links */
+        footer a {
+            display: inline-block;
+            padding: 10px 4px;
+        }
+
         /* Responsive adjustments */
         @media (max-width: 768px) {
             .header-with-calculator {
@@ -964,10 +970,6 @@
             
             #tv-chart {
                 height: 350px !important; /* UPDATED from 400px */
-            }
-            
-            .calculator-compact {
-                display: none;
             }
             
             .result-row-compact {
@@ -1033,7 +1035,7 @@
                 <div class="current-rate" id="xag-npr" aria-live="polite" aria-atomic="true">चाँदी प्रति तोला: रु {{ fmt.silver_tola_in }}</div>
                 <div class="backend-status-compact">
                     <span class="status-indicator status-connected" id="backend-status-indicator" aria-hidden="true"></span>
-                    <span id="backend-status-text">Backend Connected</span>
+                    <span id="backend-status-text">Live prices</span>
                 </div>
             </div>
 
@@ -1481,13 +1483,13 @@
                 
                 if (connected) {
                     indicator.className = 'status-indicator status-connected';
-                    statusText.textContent = 'Django Backend Connected ✓';
+                    statusText.textContent = 'Live prices ✓';
                     errorMessage.style.display = 'none';
                 } else {
                     indicator.className = 'status-indicator status-disconnected';
                     if (retryCount >= MAX_RETRIES) {
-                        statusText.textContent = 'Using Fallback Data';
-                        errorText.textContent = 'Backend connection failed. Showing fallback prices.';
+                        statusText.textContent = 'Showing last known prices';
+                        errorText.textContent = 'Could not reach the price server. Showing last known prices.';
                     } else {
                         statusText.textContent = `Connecting... (${retryCount}/${MAX_RETRIES})`;
                         errorText.textContent = 'Connecting to Django backend...';
@@ -1541,7 +1543,6 @@
                     "popup_height": "650",
                     "studies": [
                         "MASimple@tv-basicstudies",
-                        "Volume@tv-basicstudies",
                         "RSI@tv-basicstudies"
                     ],
                     "container_id": "tv-chart",
@@ -1561,9 +1562,6 @@
                         "mainSeriesProperties.candleStyle.borderDownColor": "#ef5350"
                     },
                     "studies_overrides": {
-                        "volume.volume.color.0": theme === 'dark' ? "#26a69a" : "#26a69a",
-                        "volume.volume.color.1": theme === 'dark' ? "#ef5350" : "#ef5350",
-                        "volume.volume.transparency": 70,
                         "rsi.rsi.plotcolor": "#FF6B6B",
                         "rsi.rsi.linewidth": 2,
                         "moving average.plot.color": "#FFD700",
@@ -1629,7 +1627,7 @@
                 // Update silver prices - using backend-calculated values
                 document.getElementById('silver-usd').textContent = formatCurrency(prices.silver_usd, 3, 'USD');
                 document.getElementById('silver-npr').textContent = formatCurrency(prices.silver_npr, 2, 'NPR');
-                document.getElementById('silver-tola').textContent = formatCurrency(prices.silver_tola_npr, 2, 'NPR'); // 2 decimals for silver tola
+                document.getElementById('silver-tola').textContent = formatCurrency(prices.silver_tola_npr, 0, 'NPR');
                 document.getElementById('silver-kg').textContent = formatCurrency(prices.silver_kg_npr, 0, 'NPR');
                 
                 // Update exchange rate
