@@ -16,11 +16,24 @@ GOLD_API_KEY = os.environ.get('GOLD_API_KEY', 'f2db1aaaee18667e498f2a463de979521
 # Using the exchange rate API you requested
 EXCHANGE_RATE_URL = 'https://open.er-api.com/v6/latest/USD'
 
-# Nepal Market Premiums
+# Nepal Market Premiums (Nepal retail price / international spot in NPR).
+# Calibrated 2026-11-04 against FENEGOSIDA rates (via Hamro Patro), using the
+# gold-api.com price at the daily Nepal fix time (10:45 NPT = 05:00 UTC), not the
+# day's high. Implied premium vs NRB sell rate: gold 1.223-1.231, silver 1.294-1.298.
+# Scaled by ~1.0033 because this app converts with open.er-api's USD/NPR rate,
+# which runs ~0.33% below the NRB selling rate the dealers use.
+# To recalibrate: premium = nepal_tola_price / (spot_usd_at_05:00_UTC * app_usd_npr * 11.6638 / 31.1035)
 NEPAL_PREMIUMS = {
-    'gold': 1.1129,    # new% premium
-    'silver': 1.1825   # new
+    'gold': 1.232,
+    'silver': 1.301,
 }
+GOLD_PREMIUM_PCT = round((NEPAL_PREMIUMS['gold'] - 1) * 100, 2)
+SILVER_PREMIUM_PCT = round((NEPAL_PREMIUMS['silver'] - 1) * 100, 2)
+
+# Fallbacks used only when an upstream API is unreachable (approx. Nov 2026 levels)
+FALLBACK_GOLD_USD = 4000
+FALLBACK_SILVER_USD = 52
+FALLBACK_USD_NPR = 152
 
 
 @require_GET
@@ -61,7 +74,7 @@ def fetch_gold_price():
         print(f"❌ Gold API error: {e}")
     
     print("❌ Gold API failed, using approximation")
-    return 4968
+    return FALLBACK_GOLD_USD
 
 def fetch_silver_price():
     """Get silver price from Gold API"""
@@ -90,7 +103,7 @@ def fetch_silver_price():
         print(f"❌ Silver API error: {e}")
     
     print("❌ Silver API failed, using approximation")
-    return 80
+    return FALLBACK_SILVER_USD
 
 def fetch_exchange_rate():
     """Get USD to NPR rate from open.er-api.com"""
@@ -101,17 +114,17 @@ def fetch_exchange_rate():
             
             # Check if API call was successful
             if data.get('result') == 'success':
-                rate = float(data.get('rates', {}).get('NPR', 133.65))
+                rate = float(data.get('rates', {}).get('NPR', FALLBACK_USD_NPR))
                 print(f"✅ Got exchange rate from open.er-api.com: NPR {rate}")
                 return rate
             else:
                 print(f"⚠️ Exchange API returned error: {data.get('error-type', 'Unknown error')}")
-                return 144
+                return FALLBACK_USD_NPR
     except Exception as e:
         print(f"❌ Exchange API error: {e}")
     
     # Fallback rate
-    return 144
+    return FALLBACK_USD_NPR
 
 @require_GET
 @cache_page(30)
@@ -164,7 +177,7 @@ def get_prices(request):
         gold_kg_npr = gold_kg_npr_base * NEPAL_PREMIUMS['gold']
         silver_kg_npr = silver_kg_npr_base * NEPAL_PREMIUMS['silver']
         
-        print(f"✅ WITH PREMIUMS: Gold NPR: {gold_npr:,.2f} (+10.08%), Silver NPR: {silver_npr:,.2f} (+12.66%)")
+        print(f"✅ WITH PREMIUMS: Gold NPR: {gold_npr:,.2f} (+{GOLD_PREMIUM_PCT}%), Silver NPR: {silver_npr:,.2f} (+{SILVER_PREMIUM_PCT}%)")
         
         # Create response
         response_data = {
@@ -187,8 +200,8 @@ def get_prices(request):
                 'unit': 'USD per troy ounce',
                 'conversion_note': '1 tola = 11.6638g, 1 troy ounce = 31.1035g',
                 'premium_applied': True,
-                'gold_premium_pct': 11.29,
-                'silver_premium_pct': 18.25
+                'gold_premium_pct': GOLD_PREMIUM_PCT,
+                'silver_premium_pct': SILVER_PREMIUM_PCT
             }
         }
         
@@ -202,9 +215,9 @@ def get_prices(request):
         print(f"❌ Error in get_prices: {e}")
         
         # Fallback with same API structure
-        gold_usd = 5000
-        silver_usd = 80
-        usd_npr = 144
+        gold_usd = FALLBACK_GOLD_USD
+        silver_usd = FALLBACK_SILVER_USD
+        usd_npr = FALLBACK_USD_NPR
         
         # Reuse the same calculation for consistency
         GRAMS_PER_TROY_OUNCE = 31.1035
@@ -246,8 +259,8 @@ def get_prices(request):
                 'timestamp': int(time.time()),
                 'source': 'Fallback due to error',
                 'premium_applied': True,
-                'gold_premium_pct': 11.29,
-                'silver_premium_pct': 18.25
+                'gold_premium_pct': GOLD_PREMIUM_PCT,
+                'silver_premium_pct': SILVER_PREMIUM_PCT
             }
         })
 
@@ -282,8 +295,8 @@ def health_check(request):
         'exchange_api_url': EXCHANGE_RATE_URL,
         'gold_api_url': 'https://api.gold-api.com/price/XAU',
         'premiums_applied': True,
-        'gold_premium': '11.29%',
-        'silver_premium': '18.25%'
+        'gold_premium': f'{GOLD_PREMIUM_PCT}%',
+        'silver_premium': f'{SILVER_PREMIUM_PCT}%'
     })
 
 

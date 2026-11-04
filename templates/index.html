@@ -1381,6 +1381,8 @@
                             gold: safeGoldPrice,
                             silver: safeSilverPrice,
                             exchange: safeExchangeRate,
+                            goldPremium: 1 + (parseFloat(prices.gold_premium_pct) || 0) / 100,
+                            silverPremium: 1 + (parseFloat(prices.silver_premium_pct) || 0) / 100,
                             timestamp: Date.now()
                         };
                         
@@ -1428,11 +1430,14 @@
                     // Use cached prices if available and not too old (5 minutes)
                     if (Date.now() - priceCache.timestamp < 300000) {
                         console.log('Using cached prices');
-                        const goldNPR = priceCache.gold * priceCache.exchange;
-                        const silverNPR = priceCache.silver * priceCache.exchange;
+                        // Apply the same Nepal premium the backend last reported
+                        const gp = priceCache.goldPremium || 1;
+                        const sp = priceCache.silverPremium || 1;
+                        const goldNPR = priceCache.gold * priceCache.exchange * gp;
+                        const silverNPR = priceCache.silver * priceCache.exchange * sp;
                         
-                        const goldPerGram = priceCache.gold / GRAMS_PER_TROY_OUNCE;
-                        const silverPerGram = priceCache.silver / GRAMS_PER_TROY_OUNCE;
+                        const goldPerGram = priceCache.gold * gp / GRAMS_PER_TROY_OUNCE;
+                        const silverPerGram = priceCache.silver * sp / GRAMS_PER_TROY_OUNCE;
                         
                         const goldTolaNPR = goldPerGram * TOLA_TO_GRAMS * priceCache.exchange;
                         const silverTolaNPR = silverPerGram * TOLA_TO_GRAMS * priceCache.exchange;
